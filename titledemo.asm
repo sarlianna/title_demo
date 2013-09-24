@@ -3,6 +3,16 @@
   .inesmap 0
   .inesmir 0      ;horizontal mirroring for vertical scrolling
 
+;;;;;;;;;;;;;;;;;;;;
+
+  .rsset $0000
+
+scroll      .rs 1
+nametable   .rs 1
+staticHigh  .rs 1
+staticLow   .rs 1
+
+;;;;;;;;;;;;;;;;;;;;
 
   .bank 0
   .org $C000
@@ -148,15 +158,50 @@ NMI:
   LDA #$02        ;high byte of RAM containing sprite data
   STA $4014       ;OAM_DMA.  This will begin copying sprite data for us.
 
-;WHAT WILL HAPPEN HERE:
-;wait for sprite 0 hit, wait a set number of frames, and then write current graphics address to $2006
-;   this should happen outside vblank.  Unsure where it should go.
-;check scroll registers, and render any background data just past the seam
-;   this includes about to be shown text AND static image data (which must be written far in advance,
+;Graphic update code:
+;check current scroll, and render any background rows just past the seam
+;   this includes text that is about to be shown AND static image data (which must be written far in advance,
 ;   as the image is too large to be done in one frame)
-;check scroll registers, and if we will soon overlap the static image, change its location and write
-;    new palette data for it
-;move all sprites the same distance we scrolled.  This should definitely be last, as we don't need vblank
+;if current scroll will soon overlap the static image, change image locations and write
+;    new palette data for it (?)
+;update variables (scroll, sprite locations)
+
+  LDA #$00
+  STA $2006
+  STA $2006       ;Necessary??
+
+  LDA #$00        ;Set no horizontal scroll and current vertical scroll.
+  STA $2005
+  LDA scroll
+  STA $2005
+
+  LDA #%10010000  ;Ensure we're pointed at the correct nametable
+  ORA nametable
+  STA $2000
+
+  LDA #%00011110   ;Reset sprite settings
+  STA $2001
+  
+
+VblankEndWait:    ;at the end of vblank, sprite 0 flag is cleared.  We wait for this to ensure
+  LDA $2002       ;the set flag is on this frame, and not left over from last frame.
+  AND #%01000000  ;bit 6 of $2002 is the sprite 0 flag
+  BNE VblankEndWait
+
+Sprite0Wait:
+  LDA $2002
+  AND #%01000000
+  BEQ Sprite0Wait
+
+  LDX #$10        ;amount of time needed to wait after sprite 0 hit may change after graphics are set
+WaitScanline:
+  DEX
+  BNE WaitScanline
+
+  LDA staticHigh      ;Point PPU to where our static graphic section currently resides
+  STA $2006
+  LDA staticLow
+  STA $2006
 
   RTI
 
